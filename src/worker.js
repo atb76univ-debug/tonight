@@ -1,5 +1,20 @@
 // /api/db: 全データの読み書き（回ごと・部分ごとに新しい方を採用してマージ）
 // /api/flyer/<id>: フライヤー画像の保存と配信
+function mergeBarTransactions(a = {}, b = {}) {
+  const resetAt = Math.max(Number(a.resetAt || 0), Number(b.resetAt || 0));
+  const voided = new Set([...(a.voidedSales || []), ...(b.voidedSales || [])]);
+  const byId = new Map();
+  [...(a.sales || []), ...(b.sales || [])].forEach(sale => {
+    if (!sale?.id || Number(sale.timestamp || 0) <= resetAt || voided.has(sale.id)) return;
+    if (!byId.has(sale.id)) byId.set(sale.id, sale);
+  });
+  return {
+    sales: [...byId.values()].sort((x, y) => Number(y.timestamp || 0) - Number(x.timestamp || 0)),
+    resetAt,
+    voidedSales: [...voided]
+  };
+}
+
 function mergeInto(t, s) {
   t.events = t.events || [];
   for (const e of (s.events || [])) {
@@ -12,7 +27,12 @@ function mergeInto(t, s) {
       o.u.meta = eu.meta;
     }
     if ((eu.rec || 0) > (o.u.rec || 0)) { o.state = e.state; o.u.rec = eu.rec; }
+    const mergedBarTransactions = mergeBarTransactions(o.bar || {}, e.bar || {});
     if ((eu.bar || 0) > (o.u.bar || 0)) { o.bar = e.bar; o.u.bar = eu.bar; }
+    o.bar = o.bar || {};
+    o.bar.sales = mergedBarTransactions.sales;
+    o.bar.resetAt = mergedBarTransactions.resetAt;
+    o.bar.voidedSales = mergedBarTransactions.voidedSales;
     if ((eu.tt || 0) > (o.u.tt || 0)) { o.tt = e.tt; o.u.tt = eu.tt; }
   }
   return t;
